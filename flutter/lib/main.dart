@@ -13,7 +13,7 @@ class FieldApp extends StatelessWidget {
       title: 'Field app',
       home: Scaffold(
         appBar: AppBar(title: const Text('Field app')),
-        body: Center(child: Text('yo wassup dragos im on $platform')),
+        body: Center(child: Text('yo wassup $platform')),
       ),
     );
   }
