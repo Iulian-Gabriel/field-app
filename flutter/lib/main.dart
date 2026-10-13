@@ -31,6 +31,9 @@ class FieldApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Field app',
+      theme: ThemeData.light(),
+      darkTheme: ThemeData.dark(),
+      themeMode: ThemeMode.system,
       home: const HomeScreen()
     );
   }
@@ -98,12 +101,16 @@ class DeviceInfoScreen extends StatelessWidget{
     final platform = kIsWeb ? 'web' : defaultTargetPlatform.name;
     final size = MediaQuery.sizeOf(context);
     final ratio = MediaQuery.devicePixelRatioOf(context);
+    final orientation = MediaQuery.orientationOf(context);
+    final dark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
+    final pad = MediaQuery.paddingOf(context);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Device info')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: FutureBuilder<Map<String, String>>(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: FutureBuilder<Map<String, String>>(
           future: loadDeviceInfo(),
           builder: (context, snapshot) {
             final info = snapshot.data;
@@ -115,11 +122,15 @@ class DeviceInfoScreen extends StatelessWidget{
                 Text('Screen: ${size.width.round()} x ${size.height.round()} logical px'),
                 Text('Pixel ratio: ${ratio.toStringAsFixed(2)}'),
                 Text('Model: ${info?['model'] ?? 'loading...'}'),
+                Text('Orientation: ${orientation.name}'),
+                Text('Dark mode: ${dark ? 'yes' : 'no'}'),
+                Text('Safe Area: top ${pad.top.round()}, bottom ${pad.bottom.round()}'),
               ],
             );
           },
         ),
       ),
+      )
     );
   }
 }
