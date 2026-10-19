@@ -23,3 +23,7 @@ Screenshots of both apps on web, emulator and phone are in `docs/week-1/`.
 ## Requirements
 
 Node 20+, Bun, Git, Android Studio (SDK + JDK 17/21), Flutter 3.47.
+
+## Firebase project ID
+
+field-app-iulian-tina
