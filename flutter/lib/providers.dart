@@ -50,3 +50,7 @@ class RecentNotifier extends Notifier<List<String>> {
 }
 
 final recentProvider = NotifierProvider<RecentNotifier, List<String>>(RecentNotifier.new);
+
+final photoProvider = StreamProvider.family<PhotoRow?, String>(
+      (ref, id) => ref.watch(databaseProvider).watchPhoto(id),
+);

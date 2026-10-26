@@ -1,12 +1,9 @@
-import 'dart:io' show File;
-
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../location.dart';
 import '../photos.dart';
 import '../providers.dart';
+import 'gallery.dart';
 
 class PhotosCard extends ConsumerStatefulWidget {
   const PhotosCard({super.key, required this.entranceId});
@@ -69,27 +66,8 @@ class _PhotosCardState extends ConsumerState<PhotosCard> {
                   style: muted,
                 ),
               ),
-            for (final p in list)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: SizedBox.square(
-                    dimension: 56,
-                    child: kIsWeb
-                        ? Image.network(p.localUri, fit: BoxFit.cover)
-                        : Image.file(File(p.localUri), fit: BoxFit.cover),
-                  ),
-                ),
-                title: Text(DateTime.parse(p.takenAt).toLocal().toString().substring(0, 19)),
-                subtitle: Text([
-                  p.lat == null || p.lng == null
-                      ? 'no position'
-                      : '${p.lat!.toStringAsFixed(5)}, ${p.lng!.toStringAsFixed(5)}',
-                  if (p.heading case final h?) 'facing ${h.round()}° ${compassPoint(h)}',
-                  p.fileName,
-                ].join(' · ')),
-              ),
+            const SizedBox(height: 8),
+            PhotoGrid(photos: list),
           ],
         ),
       ),

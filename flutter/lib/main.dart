@@ -13,6 +13,7 @@ import 'screens/user_screen.dart';
 import 'screens/building_screen.dart';
 import 'store.dart';
 import 'session.dart';
+import 'screens/photo_screen.dart';
 
 Future<void> main() async {
   GoRouter.optionURLReflectsImperativeAPIs = true;
@@ -71,6 +72,10 @@ final _router = GoRouter(
     GoRoute(
       path: '/users/:id',
       builder: (context, state) => UserScreen(id: state.pathParameters['id']!),
+    ),
+    GoRoute(
+      path: '/photos/:id',
+      builder: (context, state) => PhotoScreen(id: state.pathParameters['id']!),
     ),
     GoRoute(
       path: '/entrances/:id',
