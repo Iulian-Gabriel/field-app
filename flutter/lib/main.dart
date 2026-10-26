@@ -1,136 +1,143 @@
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:device_info_plus/device_info_plus.dart';
+import 'package:go_router/go_router.dart';
 
-void main() => runApp(const FieldApp());
+import 'db/database.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'providers.dart';
+import 'screens/entrance_screen.dart';
+import 'screens/inbox_screen.dart';
+import 'screens/map_screen.dart';
+import 'screens/route_screen.dart';
+import 'screens/survey_screen.dart';
+import 'screens/user_screen.dart';
+import 'screens/building_screen.dart';
+import 'store.dart';
+import 'session.dart';
 
-class Building {
-  final String id;
-  final String address;
-  final int? floors; // null = not surveyed yet
-  final int? elevators;
-  const Building({required this.id, required this.address, this.floors, this.elevators});
-
-  Building copyWith({int? floors, int? elevators}) =>
-      Building(id: id, address: address, floors: floors ?? this.floors, elevators: elevators ?? this.elevators);
+Future<void> main() async {
+  GoRouter.optionURLReflectsImperativeAPIs = true;
+  WidgetsFlutterBinding.ensureInitialized();
+  final fixtures = await Fixtures.load();
+  // The app's truth from now on: SQLite, seeded from the fixtures once.
+  final db = AppDatabase();
+  await db.seedIfEmpty(fixtures.buildings, fixtures.entrances);
+  _startAt = await lastTab();
+  runApp(ProviderScope(
+    // Hand the two things main() opened to every provider that asks for them.
+    overrides: [
+      fixturesProvider.overrideWithValue(fixtures),
+      databaseProvider.overrideWithValue(db),
+    ],
+    child: const FieldApp(),
+  ));
 }
 
-String describe(Building b) {
-  final floors = b.floors ?? 'unknown';
-  final elevators = b.elevators ?? 'unknown';
-  if(b.elevators == null){
-    return '${b.address}: $floors floors, elevators $elevators';
-  }
-  return '${b.address}: $floors floors, $elevators elevators';
-}
+const _tabs = ['/map', '/route', '/inbox'];
+var _startAt = _tabs.first;
+
+final _router = GoRouter(
+  initialLocation: _startAt,
+  routes: [
+    // The three tabs: each branch keeps its own navigation stack.
+    StatefulShellRoute.indexedStack(
+      builder: (context, state, shell) => TabsShell(shell: shell),
+      branches: [
+        StatefulShellBranch(routes: [
+          GoRoute(path: '/map', builder: (context, state) => const MapScreen()),
+        ]),
+        StatefulShellBranch(routes: [
+          GoRoute(path: '/route', builder: (context, state) => const RouteScreen()),
+        ]),
+        StatefulShellBranch(routes: [
+          GoRoute(
+            path: '/inbox',
+            builder: (context, state) => const InboxScreen(),
+            routes: [
+              GoRoute(
+                path: 'conversations/:id',
+                builder: (context, state) =>
+                    ConversationScreen(id: state.pathParameters['id']!),
+              ),
+            ],
+          ),
+        ]),
+      ],
+    ),
+    // Outside the shell: these cover the tab bar, like a stack screen.
+    GoRoute(
+      path: '/buildings/:id',
+      builder: (context, state) => BuildingScreen(id: state.pathParameters['id']!),
+    ),
+    GoRoute(
+      path: '/users/:id',
+      builder: (context, state) => UserScreen(id: state.pathParameters['id']!),
+    ),
+    GoRoute(
+      path: '/entrances/:id',
+      builder: (context, state) =>
+          EntranceScreen(id: state.pathParameters['id']!),
+      routes: [
+        GoRoute(
+          path: 'survey',
+          builder: (context, state) =>
+              SurveyScreen(id: state.pathParameters['id']!),
+        ),
+      ],
+    ),
+  ],
+);
 
 class FieldApp extends StatelessWidget {
   const FieldApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    const seed = Color(0xFFC2410C);
+    return MaterialApp.router(
       title: 'Field app',
-      theme: ThemeData.light(),
-      darkTheme: ThemeData.dark(),
-      themeMode: ThemeMode.system,
-      home: const HomeScreen()
+      routerConfig: _router,
+      theme: ThemeData(colorSchemeSeed: seed, brightness: Brightness.light),
+      darkTheme: ThemeData(colorSchemeSeed: seed, brightness: Brightness.dark),
+      themeMode: ThemeMode.system, // follow the phone's setting
     );
   }
 }
 
-class HomeScreen extends StatelessWidget{
-  const HomeScreen({super.key});
+class TabsShell extends ConsumerWidget {
+  const TabsShell({super.key, required this.shell});
+
+  final StatefulNavigationShell shell;
 
   @override
-  Widget build(BuildContext context) {
-    final platform = kIsWeb ? 'web' : defaultTargetPlatform.name;
-    const b = Building(id: 'b-17', address: 'Str. Lipscani 12');
+  Widget build(BuildContext context, WidgetRef ref) {
+    final f = ref.watch(fixturesProvider);
+    final unread = f.messages
+        .where((m) => m.authorId != f.me && !m.readAt.containsKey(f.me))
+        .where((m) => f.conversations
+        .any((c) => c.id == m.conversationId && c.participantIds.contains(f.me)))
+        .length;
     return Scaffold(
-      appBar: AppBar(title: const Text ('Field app')),
-      body: Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text('Hello from Flutter on $platform'),
-          Text(describe(b)),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const DeviceInfoScreen()),
+      body: shell,
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: shell.currentIndex,
+        // Tapping the current tab again goes back to its first screen.
+        onDestinationSelected: (i) {
+          shell.goBranch(i, initialLocation: i == shell.currentIndex);
+          saveLastTab(_tabs[i]);
+        },
+        destinations: [
+          const NavigationDestination(icon: Icon(Icons.map_outlined), label: 'Map'),
+          const NavigationDestination(icon: Icon(Icons.list_alt), label: 'My route'),
+          NavigationDestination(
+            icon: Badge(
+              isLabelVisible: unread > 0,
+              label: Text('$unread'),
+              child: const Icon(Icons.mail_outline),
             ),
-            child: const Text('Device info'),
-          )
+            label: 'Inbox',
+          ),
         ],
       ),
-    ),
-    );
-  }
-}
-
-Future<Map<String, String>> loadDeviceInfo() async {
-  final plugin = DeviceInfoPlugin();
-  if (kIsWeb) {
-    final w = await plugin.webBrowserInfo;
-    return {
-      'os': 'n/a (running in a browser: ${w.browserName.name})',
-      'model' : 'n/a (web)',
-    };
-  }
-  switch (defaultTargetPlatform){
-    case TargetPlatform.android:
-      final a = await plugin.androidInfo;
-      return {
-        'os': 'Android ${a.version.release} (API ${a.version.sdkInt})',
-        'model': '${a.manufacturer} ${a.model}',
-      };
-    case TargetPlatform.iOS:
-      final i = await plugin.iosInfo;
-      return {'os': '${i.systemName} ${i.systemVersion}', 'model': i.utsname.machine};
-    default:
-      return {'os': 'n/a', 'model': 'n/a'};
-  }
-}
-
-class DeviceInfoScreen extends StatelessWidget{
-  const DeviceInfoScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final platform = kIsWeb ? 'web' : defaultTargetPlatform.name;
-    final size = MediaQuery.sizeOf(context);
-    final ratio = MediaQuery.devicePixelRatioOf(context);
-    final orientation = MediaQuery.orientationOf(context);
-    final dark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
-    final pad = MediaQuery.paddingOf(context);
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Device info')),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: FutureBuilder<Map<String, String>>(
-          future: loadDeviceInfo(),
-          builder: (context, snapshot) {
-            final info = snapshot.data;
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Platform: $platform'),
-                Text('OS version: ${info?['os'] ?? 'loading...'}'),
-                Text('Screen: ${size.width.round()} x ${size.height.round()} logical px'),
-                Text('Pixel ratio: ${ratio.toStringAsFixed(2)}'),
-                Text('Model: ${info?['model'] ?? 'loading...'}'),
-                Text('Orientation: ${orientation.name}'),
-                Text('Dark mode: ${dark ? 'yes' : 'no'}'),
-                Text('Safe Area: top ${pad.top.round()}, bottom ${pad.bottom.round()}'),
-              ],
-            );
-          },
-        ),
-      ),
-      )
     );
   }
 }
