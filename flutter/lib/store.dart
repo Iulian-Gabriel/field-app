@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart' show rootBundle;
 // The contract has its own Route (an admin's list of stops); hide Flutter's.
-import 'package:flutter/widgets.dart' hide Route;
+//import 'package:flutter/widgets.dart' hide Route;
 
 import 'contract/contract.dart';
 

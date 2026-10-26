@@ -53,6 +53,8 @@ class Entrances extends Table with RowColumns, LocalColumns {
   TextColumn get surveyStatus => textEnum<SurveyStatus>()();
   TextColumn get surveyedBy => text().nullable()();
   TextColumn get surveyedAt => text().nullable()();
+  /// Exercise 1 — local-only: when this phone last opened the entrance.
+  TextColumn get openedAt => text().nullable()();
 }
 
 @DataClassName('PhotoRow')
@@ -91,11 +93,17 @@ class AppDatabase extends _$AppDatabase {
       ));
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration =>
-      MigrationStrategy(onCreate: (m) => m.createAll());
+      MigrationStrategy(
+        onCreate: (m) => m.createAll(), // a new install gets every column at once
+        onUpgrade: (m, from, to) async {
+          // A phone that has version 1 gets the new column, keeping its rows.
+          if (from < 2) await m.addColumn(entrances, entrances.openedAt);
+        },
+      );
 
   /// First launch only: copy the office's fixtures into the empty tables.
   /// A contract object and a row share their field names, so JSON carries one
@@ -131,6 +139,9 @@ class AppDatabase extends _$AppDatabase {
 
   Stream<List<PhotoRow>> watchPhotos(String entranceId) =>
       (select(photos)..where((p) => p.entranceId.equals(entranceId))).watch();
+  /// Exercise 1: the new column, read like any other.
+  Stream<String?> watchOpenedAt(String id) =>
+      (select(entrances)..where((e) => e.id.equals(id))).watchSingleOrNull().map((r) => r?.openedAt);
   // ---- Writes ----
 
   /// The survey goes to SQLite: it survives a restart and waits for week 4's push.
@@ -178,4 +189,10 @@ class AppDatabase extends _$AppDatabase {
     });
     return entranceId;
   }
+
+  /// Exercise 1: remember when this phone last opened the entrance.
+  Future<void> markOpened(String id) =>
+      (update(entrances)..where((e) => e.id.equals(id))).write(
+        EntrancesCompanion(openedAt: Value(DateTime.now().toUtc().toIso8601String())),
+      );
 }
