@@ -137,8 +137,38 @@ class AppDatabase extends _$AppDatabase {
           .watchSingleOrNull()
           .map((r) => r == null ? null : Building.fromJson(r.toJson()));
 
-  Stream<List<PhotoRow>> watchPhotos(String entranceId) =>
-      (select(photos)..where((p) => p.entranceId.equals(entranceId))).watch();
+  Stream<List<PhotoRow>> watchPhotos(String entranceId) => (select(photos)
+    ..where((p) => p.entranceId.equals(entranceId))
+    ..orderBy([(p) => OrderingTerm.desc(p.takenAt)])) // newest first
+      .watch();
+
+  Stream<PhotoRow?> watchPhoto(String id) =>
+      (select(photos)..where((p) => p.id.equals(id))).watchSingleOrNull();
+
+  /// Stands in for the office: mark a photo "retake". The contract's rules
+  /// (P1: a retake needs a note, P2: a reviewed photo names its reviewer)
+  /// run BEFORE anything is written.
+  Future<void> markRetake(String photoId, String note, String me) async {
+    final row = await (select(photos)..where((p) => p.id.equals(photoId))).getSingle();
+    final now = DateTime.now().toUtc().toIso8601String();
+    final trimmed = note.trim();
+    final candidate = Photo.fromJson({
+      ...row.toJson(),
+      'reviewStatus': 'retake',
+      'reviewNote': trimmed.isEmpty ? null : trimmed,
+      'reviewedBy': me,
+      'updatedAt': now,
+    });
+    final errors = validatePhoto(candidate);
+    if (errors.isNotEmpty) throw FormatException(errors.join('; '));
+    await (update(photos)..where((p) => p.id.equals(photoId))).write(PhotosCompanion(
+      reviewStatus: const Value(ReviewStatus.retake),
+      reviewNote: Value(candidate.reviewNote),
+      reviewedBy: Value(me),
+      updatedAt: Value(now),
+      syncState: const Value(SyncState.pending),
+    ));
+  }
   /// Exercise 1: the new column, read like any other.
   Stream<String?> watchOpenedAt(String id) =>
       (select(entrances)..where((e) => e.id.equals(id))).watchSingleOrNull().map((r) => r?.openedAt);

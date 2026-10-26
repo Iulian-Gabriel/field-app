@@ -13,6 +13,7 @@ import 'package:uuid/uuid.dart';
 import 'db/database.dart';
 import 'location.dart';
 import 'providers.dart';
+import 'contract/contract.dart' show Photo, validatePhoto;
 
 /// What the photo file says about itself (EXIF), as far as we read it tonight.
 class ExifSummary {
@@ -45,10 +46,16 @@ Future<String> _keep(XFile picked, List<int> bytes, String id) async {
 }
 
 Future<ExifSummary> _save(WidgetRef ref, String entranceId, XFile picked,
-    {Fix? where, double? heading, required String takenAt}) async {
+    {Fix? where, double? heading, required String takenAt, String? replaces}) async {
   final id = const Uuid().v4(); // the photo's id, born on the phone
   final now = DateTime.now().toUtc().toIso8601String();
   final bytes = await picked.readAsBytes();
+  final errors = validatePhoto(Photo(
+    id: id, createdAt: now, updatedAt: now, entranceId: entranceId,
+    fileName: '$id.jpg', takenAt: takenAt,
+    lat: where?.lat, lng: where?.lng, replacesPhotoId: replaces,
+  ));
+  if (errors.isNotEmpty) throw FormatException(errors.join('; ')); // never written
   final db = ref.read(databaseProvider);
   await db.into(db.photos).insert(PhotosCompanion.insert(
     id: id,
@@ -60,6 +67,7 @@ Future<ExifSummary> _save(WidgetRef ref, String entranceId, XFile picked,
     lat: Value(where?.lat),
     lng: Value(where?.lng),
     heading: Value(heading),
+    replacesPhotoId: Value(replaces),
     localUri: await _keep(picked, bytes, id),
     // uploadState, reviewStatus and syncState start as 'pending' (the defaults)
   ));
@@ -69,13 +77,17 @@ Future<ExifSummary> _save(WidgetRef ref, String entranceId, XFile picked,
 /// The camera: the system camera app takes the picture, then a row. The row's
 /// lat/lng are where the PHONE is at the shutter (the contract's meaning) — not
 /// the EXIF, which the camera may leave out and the photo picker removes.
-Future<ExifSummary?> takePhoto(BuildContext context, WidgetRef ref, String entranceId) async {
+Future<ExifSummary?> takePhoto(BuildContext context, WidgetRef ref, String entranceId,
+    {String? replaces}) async {
   final picked = await ImagePicker().pickImage(source: ImageSource.camera);
   if (picked == null || !context.mounted) return null; // cancelled
   final takenAt = DateTime.now().toUtc().toIso8601String(); // the shutter has just fired
   final fix = await locate(context, ref).catchError((_) => null);
   return _save(ref, entranceId, picked,
-      where: fix, heading: fix == null ? null : ref.read(headingProvider).value, takenAt: takenAt);
+      where: fix,
+      heading: fix == null ? null : ref.read(headingProvider).value,
+      takenAt: takenAt,
+      replaces: replaces);
 }
 
 /// EXIF's "2026:10:20 18:41:07" is the camera's local time: read it as this phone's.
