@@ -19,6 +19,7 @@ import '../session.dart';
 const tiles = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const bucharest = LatLng(44.4355, 26.1025);
 
+
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
 
@@ -37,6 +38,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final links = ref.watch(connectivityProvider).value ?? const [ConnectivityResult.other];
     final online = !links.contains(ConnectivityResult.none);
     final token = ref.watch(tokenProvider).value;
+    final recent = ref.watch(recentProvider); // exercise 5
+    final names = {for (final e in entrances) e.id: e.entranceName};
     return Stack(
       children: [
         FlutterMap(
@@ -99,6 +102,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
                     Text('${entrances.length} entrances · $done surveyed',
                         style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text('Recently opened: ${recent.isEmpty ? 'none' : recent.map((id) => names[id] ?? '?').join(', ')}',
+                        style: Theme.of(context).textTheme.bodySmall),
                     const SizedBox(height: 6),
                     // Wrap, not Row: the contract has its own Row (the base of every entity).
                     Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [

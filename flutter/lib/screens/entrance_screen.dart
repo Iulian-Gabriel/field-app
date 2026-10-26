@@ -6,6 +6,7 @@ import 'status_chip.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'here_card.dart';
 import 'photos_card.dart';
+import 'visit_lines.dart';
 
 String show(Object? v) => v == null ? '—' : v is bool ? (v ? 'Yes' : 'No') : '$v';
 
@@ -80,6 +81,7 @@ class EntranceScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           const HereCard(),
+          VisitLines(entrance: e),  
           PhotosCard(entranceId: e.id),
           // Exercise 5 — push adds a screen (Back returns here); go replaces
           // the whole stack with the new location (Back has nowhere to go).

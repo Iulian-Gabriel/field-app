@@ -7,6 +7,8 @@ import '../providers.dart';
 
 import 'package:flutter/services.dart' show HapticFeedback;
 import '../location.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SurveyScreen extends ConsumerStatefulWidget {
   const SurveyScreen({super.key, required this.id});
@@ -23,11 +25,33 @@ class _SurveyScreenState extends ConsumerState<SurveyScreen> {
   late bool _coordsConfirmed, _addressConfirmed, _groundFloorCommercial;
   late final Map<String, TextEditingController> _text;
   Map<String, String> _ruleErrors = {};
+  final _prefs = SharedPreferencesAsync();
+  late final AppLifecycleListener _lifecycle;
+  Map<String, dynamic>? _draft;
+  bool _draftRead = false;
+  String get _draftKey => 'field.draft.${widget.id}';
 
   @override
   void initState() {
     super.initState();
     _text = {};
+    // The phone may kill an app in the background without warning: onHide is
+    // the last moment we are sure to run.
+    _lifecycle = AppLifecycleListener(onHide: _saveDraft);
+    _prefs.getString(_draftKey).then((saved) => setState(() {
+      _draft = saved == null ? null : jsonDecode(saved) as Map<String, dynamic>;
+      _draftRead = true;
+    }));
+  }
+
+  Future<void> _saveDraft() async {
+    if (_text.isEmpty) return;
+    await _prefs.setString(_draftKey, jsonEncode({
+      for (final MapEntry(:key, :value) in _text.entries) key: value.text,
+      'coordsConfirmed': _coordsConfirmed,
+      'addressConfirmed': _addressConfirmed,
+      'groundFloorCommercial': _groundFloorCommercial,
+    }));
   }
 
   void _init(Entrance e) {
@@ -48,10 +72,20 @@ class _SurveyScreenState extends ConsumerState<SurveyScreen> {
       'yearBuilt': TextEditingController(text: s(e.yearBuilt)),
       'comment': TextEditingController(text: e.comment ?? ''),
     });
+    if (_draft case final d?) {
+      for (final MapEntry(:key, :value) in _text.entries) {
+        if (d[key] is String) value.text = d[key] as String;
+      }
+      _coordsConfirmed = d['coordsConfirmed'] as bool? ?? _coordsConfirmed;
+      _addressConfirmed = d['addressConfirmed'] as bool? ?? _addressConfirmed;
+      _groundFloorCommercial = d['groundFloorCommercial'] as bool? ?? _groundFloorCommercial;
+    }
+
   }
 
   @override
   void dispose() {
+    _lifecycle.dispose();
     for (final c in _text.values) {
       c.dispose();
     }
@@ -99,6 +133,7 @@ class _SurveyScreenState extends ConsumerState<SurveyScreen> {
     setState(() => _ruleErrors = rules);
     if (!fieldsOk || rules.isNotEmpty) return;
     await ref.read(databaseProvider).submitSurvey(candidate, ref.read(meProvider));
+    await _prefs.remove(_draftKey);
     await HapticFeedback.mediumImpact();
     if (mounted) context.pop();
   }
@@ -124,6 +159,7 @@ class _SurveyScreenState extends ConsumerState<SurveyScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_draftRead) return const Scaffold(body: Center(child: CircularProgressIndicator()));
     if (_text.isEmpty) {
       final found = ref.watch(entranceProvider(widget.id));
       if (found.isLoading) {
