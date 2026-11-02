@@ -1,2 +1,7 @@
 google-services.json
 .idea/
+# Your Firebase project id: each team has its own.
+.firebaserc
+# The emulators' logs and exported data.
+*-debug.log
+emulator-data/
