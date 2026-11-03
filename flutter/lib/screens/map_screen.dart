@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +13,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import '../contract/contract.dart';
 import '../providers.dart';
 import 'status_chip.dart';
+import 'sync_bar.dart';
 import '../session.dart';
 
 // OpenStreetMap's public tiles, weeks 2–4. Week 5 swaps this one constant for
@@ -37,7 +39,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         entrances.where((e) => e.surveyStatus != SurveyStatus.not_started).length;
     final links = ref.watch(connectivityProvider).value ?? const [ConnectivityResult.other];
     final online = !links.contains(ConnectivityResult.none);
-    final token = ref.watch(tokenProvider).value;
     final recent = ref.watch(recentProvider); // exercise 5
     final names = {for (final e in entrances) e.id: e.entranceName};
     return Stack(
@@ -116,9 +117,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Text(token == null ? 'token …' : 'token ••••${token.substring(token.length - 4)}',
+                      Text(FirebaseAuth.instance.currentUser?.email ?? '',
                           style: Theme.of(context).textTheme.bodySmall),
+                      TextButton(
+                        onPressed: () => FirebaseAuth.instance.signOut(),
+                        child: const Text('Sign out'),
+                      ),
                     ]),
+                    const SyncBar(),
                   ]),
                 ),
               ),
