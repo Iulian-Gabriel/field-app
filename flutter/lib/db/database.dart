@@ -191,7 +191,11 @@ class AppDatabase extends _$AppDatabase {
                   failed: rows.where((r) => r.syncState == SyncState.failed).length,
                   lastError: rows.map((r) => r.lastError).nonNulls.firstOrNull,
                 ));
-
+    /// Invitation: every survey not synced yet, newest first, live.
+    Stream<List<EntranceRow>> watchOutboxRows() => (select(entrances)
+    ..where((e) => e.syncState.isInValues([SyncState.pending, SyncState.failed]))
+    ..orderBy([(e) => OrderingTerm.desc(e.updatedAt)]))
+      .watch();
 
   // ---- Reads: streams that emit again whenever a table they read changes ----
 

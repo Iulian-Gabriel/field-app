@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../auth.dart';
 import '../providers.dart';
@@ -39,7 +40,11 @@ class _SyncBarState extends ConsumerState<SyncBar> {
       Text(cloud == null ? 'cloud: connecting…' : 'cloud: ${cloud.length} pins, live', style: small),
       if (kDebugMode && cloud != null && cloud.isEmpty) TextButton(onPressed: _seed, child: const Text('Seed my pins')),
       if (_seeded != null) Text(_seeded!, style: small),
-          if (box != null) Text('${box.pending} to send · ${box.failed} refused', style: small),
+      if (box != null)
+        TextButton(
+          onPressed: () => context.push('/sync'),
+          child: Text('${box.pending} to send · ${box.failed} refused ›'),
+        ),
           TextButton(onPressed: () => pushSurveys(ref), child: const Text('Sync now')),
           if (box?.lastError != null)
             Text('last refusal: ${box!.lastError}',

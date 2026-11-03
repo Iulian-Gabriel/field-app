@@ -19,6 +19,7 @@ import 'screens/sign_in_screen.dart';
 import 'screens/survey_screen.dart';
 import 'screens/user_screen.dart';
 import 'screens/building_screen.dart';
+import 'screens/sync_status_screen.dart';
 import 'store.dart';
 import 'sync.dart';
 import 'session.dart';
@@ -112,6 +113,7 @@ final _router = GoRouter(
         ),
       ],
     ),
+    GoRoute(path: '/sync', builder: (context, state) => const SyncStatusScreen()),
   ],
 );
 
