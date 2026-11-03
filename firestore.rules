@@ -13,7 +13,7 @@ service cloud.firestore {
     match /pins/{pinId} {
       // Only the worker it is assigned to sees a pin. A query must ask for
       // exactly that (where assignedTo == my uid), or the whole query is refused.
-      allow read: if signedIn() && resource.data.assignedTo == request.auth.uid;
+      allow read: if signedIn() && resource.data.surveyedBy == request.auth.uid;
       // "Seed my pins": a new pin, assigned to yourself. Never to someone else.
       allow create: if signedIn()
         && request.resource.data.assignedTo == request.auth.uid
@@ -29,7 +29,12 @@ service cloud.firestore {
         return get(/databases/$(database)/documents/pins/$(entranceId)).data.assignedTo
           == request.auth.uid;
       }
-      allow read: if signedIn() && resource.data.surveyedBy == request.auth.uid;
+      // Course 2, exercise 1: "read" is two rules. get = one document by its
+      // id: also when it does not exist yet (resource == null), so the app can
+      // ask "is my survey there?". list = a query: only my own surveys.
+      allow get: if signedIn()
+        && (resource == null || resource.data.surveyedBy == request.auth.uid);
+      allow list: if signedIn() && resource.data.surveyedBy == request.auth.uid;
       allow create: if signedIn()
         && request.resource.data.surveyedBy == request.auth.uid
         && pinIsMine();

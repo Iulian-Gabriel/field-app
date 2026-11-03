@@ -25,6 +25,17 @@ final outboxProvider = StreamProvider(
       (ref) => ref.watch(databaseProvider).watchOutbox(),
     );
 
+/// Exercise 2: the newest survey the cloud has from me.
+final lastSentProvider = StreamProvider<Map<String, dynamic>?>(
+      (ref) => ref.watch(surveysRepositoryProvider).watchLastSent(ref.watch(uidProvider)).handleError(
+        (Object e) {
+      debugPrint('$e'); // failed-precondition: the message holds the link that creates the index
+      throw e;
+    },
+  ),
+);
+
+
 var _pushing = false;
 
 /// The outbox push: every unsent survey goes up as surveys/{entranceId} with

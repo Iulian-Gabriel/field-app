@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers.dart';
+import '../repositories.dart';
 import 'status_chip.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'here_card.dart';
@@ -63,6 +64,7 @@ class EntranceScreen extends ConsumerWidget {
             alignment: Alignment.centerLeft,
             child: Hero(tag: 'status-${e.id}', child: StatusChip(status: e.surveyStatus)),
           ),
+          Text('In the cloud: ${_cloudText(ref.watch(cloudSurveyProvider(e.id)).value)}'),
           const SizedBox(height: 8),
           Text('Office pin: ${e.lat.toStringAsFixed(5)}, ${e.lng.toStringAsFixed(5)}'),
           if (building?.comment != null) Text('Office note: ${building!.comment}'),
@@ -106,3 +108,12 @@ class EntranceScreen extends ConsumerWidget {
     );
   }
 }
+
+/// Exercise 1: the cloud's answer, in words.
+String _cloudText(CloudSurvey? cloud) => switch (cloud?.state) {
+      null => 'asking…',
+      CloudState.none => 'not sent yet',
+      CloudState.denied => 'refused by the rules',
+      CloudState.pending => 'written on this phone, waiting for the server',
+      CloudState.sent => 'sent, ${DateTime.parse(cloud!.updatedAt!).toLocal().toString().substring(0, 19)}',
+    };
