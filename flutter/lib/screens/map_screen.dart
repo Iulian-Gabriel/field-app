@@ -1,4 +1,3 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +14,8 @@ import '../providers.dart';
 import 'status_chip.dart';
 import 'sync_bar.dart';
 import '../session.dart';
+import '../auth.dart';
+import '../sync.dart';
 
 // OpenStreetMap's public tiles, weeks 2–4. Week 5 swaps this one constant for
 // the course's own Bucharest tiles.
@@ -117,10 +118,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Text(FirebaseAuth.instance.currentUser?.email ?? '',
+                      Text(ref.watch(authStateProvider).value?.email ?? '',
                           style: Theme.of(context).textTheme.bodySmall),
                       TextButton(
-                        onPressed: () => FirebaseAuth.instance.signOut(),
+                        onPressed: () => signOutIfSent(context, ref),
                         child: const Text('Sign out'),
                       ),
                     ]),

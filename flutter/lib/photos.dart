@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io' show Directory, File;
+import 'auth.dart';
+import 'photo_queue.dart';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:exif/exif.dart';
@@ -49,6 +51,11 @@ Future<ExifSummary> _save(WidgetRef ref, String entranceId, XFile picked,
     {Fix? where, double? heading, required String takenAt, String? replaces}) async {
   final id = const Uuid().v4(); // the photo's id, born on the phone
   final now = DateTime.now().toUtc().toIso8601String();
+  // Week 5: everything from ref first: the screen (and its ref) may be gone by
+  // the time the file is read and saved.
+  final db = ref.read(databaseProvider);
+  final uid = ref.read(uidProvider);
+  final queue = ref.read(photoQueueProvider);
   final bytes = await picked.readAsBytes();
   final errors = validatePhoto(Photo(
     id: id, createdAt: now, updatedAt: now, entranceId: entranceId,
@@ -56,7 +63,6 @@ Future<ExifSummary> _save(WidgetRef ref, String entranceId, XFile picked,
     lat: where?.lat, lng: where?.lng, replacesPhotoId: replaces,
   ));
   if (errors.isNotEmpty) throw FormatException(errors.join('; ')); // never written
-  final db = ref.read(databaseProvider);
   await db.into(db.photos).insert(PhotosCompanion.insert(
     id: id,
     createdAt: now,
@@ -71,8 +77,12 @@ Future<ExifSummary> _save(WidgetRef ref, String entranceId, XFile picked,
     localUri: await _keep(picked, bytes, id),
     // uploadState, reviewStatus and syncState start as 'pending' (the defaults)
   ));
+  // Week 5: the photo joins the upload queue at once, and the worker starts.
+  await enqueuePhoto(db, await db.photo(id), uid);
+  queue.drain();
   return readExif(bytes);
 }
+
 
 /// The camera: the system camera app takes the picture, then a row. The row's
 /// lat/lng are where the PHONE is at the shutter (the contract's meaning) — not
