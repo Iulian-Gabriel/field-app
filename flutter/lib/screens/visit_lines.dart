@@ -33,19 +33,24 @@ class _VisitLinesState extends ConsumerState<VisitLines> {
   @override
   Widget build(BuildContext context) {
     final openedAt = ref.watch(openedAtProvider(widget.entrance.id)).value;
-    final json = toWire(widget.entrance);
-    final same = toWire(fromWire(json)) == json;
     final small = Theme.of(context).textTheme.bodySmall;
+    // Week 5: the dev card can put a value in SQLite the contract refuses
+    // (stories = 99). Say so here instead of breaking the whole screen.
+    String roundTrip;
+    try {
+      final json = toWire(widget.entrance);
+      final same = toWire(fromWire(json)) == json;
+      roundTrip = '${same ? 'Round trip: same JSON ✓' : 'Round trip: DIFFERENT ✗'} · '
+          '${json.length} characters, ${(jsonDecode(json) as Map).length} keys';
+    } on FormatException catch (e) {
+      roundTrip = 'Round trip: not valid for the contract ✗ (${e.message})';
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Opened on this phone: ${openedAt == null ? 'never' : DateTime.parse(openedAt).toLocal().toString().substring(0, 19)}',
             style: small),
-        Text(
-          '${same ? 'Round trip: same JSON ✓' : 'Round trip: DIFFERENT ✗'} · '
-              '${json.length} characters, ${(jsonDecode(json) as Map).length} keys',
-          style: small?.copyWith(fontFamily: 'monospace'),
-        ),
+        Text(roundTrip, style: small?.copyWith(fontFamily: 'monospace')),
       ],
     );
   }

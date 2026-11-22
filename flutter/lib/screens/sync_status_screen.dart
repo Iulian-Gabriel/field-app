@@ -8,20 +8,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../db/database.dart';
 import '../session.dart'; // connectivityProvider (wherever map_screen gets it)
 import '../sync.dart';
+import '../providers.dart';
 
 /// A Firestore error code, said the way a worker understands it, with what to do.
-String errorText(String? code) => switch (code) {
-  'permission-denied' =>
-  'The office moved this entrance to another worker, so the cloud refused your survey. '
-      'Ask the office to give it back, or to collect your survey from this phone.',
-  'unavailable' || 'deadline-exceeded' =>
-  'The cloud could not be reached. The app will try again by itself; you can also tap Retry.',
-  'unauthenticated' => 'You are signed out. Sign in again, then tap Retry.',
-  'invalid-argument' =>
-  'Something in this survey is not valid for the cloud. Open it, check the answers and submit again.',
-  null => '',
-  _ => 'The cloud did not accept this survey ($code). Tap Retry; if it keeps failing, tell the office.',
-};
 
 class SyncStatusScreen extends ConsumerWidget {
   const SyncStatusScreen({super.key});
@@ -40,7 +29,15 @@ class SyncStatusScreen extends ConsumerWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: FilledButton.tonal(
-            onPressed: list.isEmpty ? null : () => pushSurveys(ref),
+            onPressed: list.isEmpty
+                ? null
+                : () async {
+              final db = ref.read(databaseProvider);
+              for (final r in list) {
+                if (r.syncState.name == 'failed') await db.retrySurvey(r.id);
+              }
+              pushSurveys(ref);
+            },
             child: const Text('Retry all'),
           ),
         ),
@@ -59,10 +56,13 @@ class SyncStatusScreen extends ConsumerWidget {
                 title: Text('${r.street} ${r.number}, ${r.entranceName}'),
                 subtitle: Text([
                   'submitted ${_short(r.surveyedAt ?? r.updatedAt)} · ${r.syncState.name}',
-                  if (r.syncState.name == 'failed') errorText(r.lastError),
+                  if (r.lastError != null) r.lastError!,
                 ].join('\n')),
                 trailing: r.syncState.name == 'failed'
-                    ? TextButton(onPressed: () => pushSurveys(ref, onlyId: r.id), child: const Text('Retry'))
+                    ? TextButton(onPressed: () async {
+                  await ref.read(databaseProvider).retrySurvey(r.id);
+                  pushSurveys(ref, onlyId: r.id);
+                }, child: const Text('Retry'))
                     : null,
               ),
             ),

@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import '../providers.dart';
 import '../repositories.dart';
 import 'status_chip.dart';
+import 'rules_card.dart';
+import 'sync_chip.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'here_card.dart';
 import 'photos_card.dart';
@@ -64,6 +66,7 @@ class EntranceScreen extends ConsumerWidget {
             alignment: Alignment.centerLeft,
             child: Hero(tag: 'status-${e.id}', child: StatusChip(status: e.surveyStatus)),
           ),
+          SyncChip(entranceId: e.id),
           Text('In the cloud: ${_cloudText(ref.watch(cloudSurveyProvider(e.id)).value)}'),
           const SizedBox(height: 8),
           Text('Office pin: ${e.lat.toStringAsFixed(5)}, ${e.lng.toStringAsFixed(5)}'),
@@ -85,6 +88,7 @@ class EntranceScreen extends ConsumerWidget {
           const HereCard(),
           VisitLines(entrance: e),  
           PhotosCard(entranceId: e.id),
+          RulesCard(entrance: e),
           // Exercise 5 — push adds a screen (Back returns here); go replaces
           // the whole stack with the new location (Back has nowhere to go).
           if (next != null)

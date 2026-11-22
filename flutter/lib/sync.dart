@@ -83,15 +83,25 @@ Timer? _retryTimer; // (week 4) the retry policy's timer
 var _autoTries = 0; // (week 4)
 WidgetRef? _scopeRef; // (week 4) SyncScope's ref: lives as long as a worker is signed in
 
-/// The outbox push: every unsent survey goes up as an update of its entrance's
-/// row, by the entrance's UUID, so a second push (the app was killed before it
-/// heard "ok") writes the same values again: idempotent. Offline, the call
-/// throws at once (Firestore used to wait): the survey stays pending in SQLite
-/// and the next trigger sends it.
-/// (week 4) onlyId: retry one row. auto: a retry from the policy's timer.
+/// Errors a retry cannot fix: permission (42501), a check (23514), a missing
+/// value (23502), a value of the wrong type (22P02). Everything else is retried.
+const _permanent = {'42501', '23514', '23502', '22P02'};
+
+/// What the worker reads: a sentence, not a code.
+String sentenceFor(PostgrestException e) => switch (e.code) {
+  '42501' => 'This app tried to change something only the office may change. Tell your teacher: it is a bug.',
+  '23514' => 'One of the numbers is outside what the form allows.',
+  _ => 'The server refused a value of this survey (${e.code}).',
+};
+
+/// The outbox push: every pending survey goes to upsert_survey, by the
+/// entrance's UUID, with the updatedAt it was saved with. Four outcomes:
+/// applied (synced), lost (a newer version won: the phone takes the server's),
+/// refused (failed, with a sentence) and no answer (still pending).
+/// (week 4) onlyId: push one row. auto: a retry from the policy's timer.
 Future<void> pushSurveys(WidgetRef ref, {String? onlyId, bool auto = false}) async {
   if (_pushing) {
-    _again = true; // (week 4) run once more when this push finishes
+    _again = true; // (week 4)
     return;
   }
   _pushing = true;
@@ -99,6 +109,7 @@ Future<void> pushSurveys(WidgetRef ref, {String? onlyId, bool auto = false}) asy
   _retryTimer?.cancel(); // (week 4)
   final db = ref.read(databaseProvider);
   final surveys = ref.read(surveysRepositoryProvider);
+  final pins = ref.read(pinsRepositoryProvider);
   final uid = ref.read(uidProvider);
   final times = ref.read(cloudTimesProvider.notifier); // (week 4)
   var transientLeft = false; // (week 4)
@@ -106,17 +117,36 @@ Future<void> pushSurveys(WidgetRef ref, {String? onlyId, bool auto = false}) asy
     for (final e in await db.outbox()) {
       if (onlyId != null && e.id != onlyId) continue; // (week 4)
       try {
-        await surveys.push(surveyDoc(e, uid));
-        await db.markSent(e.id, e.updatedAt, null);
-        times.mark(push: true); // (week 4)
+        if (await surveys.push(surveyDoc(e, uid))) {
+          await db.markSent(e.id, e.updatedAt, null); // applied
+          times.mark(push: true); // (week 4)
+        } else {
+          // Lost: nothing changed on the server. Pull that one row: if it is
+          // there, its newer values replace the worker's; if not, the pin is no
+          // longer mine, and the next pull removes it from the phone.
+          final server = await pins.pullOne(e.id);
+          if (server?.updatedAt == e.updatedAt) {
+            await db.markSent(e.id, e.updatedAt, null); // the same survey, resent: it was there already
+          } else if (server != null) {
+            await db.takeServerVersion(server, 'A newer change of this entrance was kept: these are its values.');
+          } else {
+            await db.markSent(e.id, e.updatedAt, null);
+            final r = _scopeRef; // (week 4) the long-lived ref, not a screen's
+            if (r != null) pullPins(r);
+          }
+        }
       } on PostgrestException catch (err) {
-        // The database said no: the row is not mine any more, or a rule refused it.
-        await db.markSent(e.id, e.updatedAt, err.message);
+        if (_permanent.contains(err.code)) {
+          await db.markSent(e.id, e.updatedAt, sentenceFor(err)); // refused: failed
+        } else {
+          await db.markWaiting(e.id, e.updatedAt, 'Could not reach the server: it will try again.');
+          transientLeft = true; // (week 4)
+        }
       }
     }
   } catch (_) {
-    // No answer (offline, a timeout): nothing is lost, the rows stay pending.
-    transientLeft = true; // (week 4) the retry policy will try again
+    // No answer at all (offline, a timeout): nothing is lost, the rows stay pending.
+    transientLeft = true; // (week 4)
   } finally {
     _pushing = false;
   }
