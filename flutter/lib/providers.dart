@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'contract/contract.dart';
 import 'db/database.dart';
-import 'firebase_repositories.dart';
+import 'supabase_repositories.dart';
 import 'repositories.dart';
 import 'store.dart';
 
@@ -16,9 +16,9 @@ final fixturesProvider = Provider<Fixtures>((ref) => throw UnimplementedError())
 /// The open database, also given in main().
 final databaseProvider = Provider<AppDatabase>((ref) => throw UnimplementedError());
 
-/// The one place that chooses the implementation. Week 5 changes these two.
-final pinsRepositoryProvider = Provider<PinsRepository>((ref) => FirebasePinsRepository());
-final surveysRepositoryProvider = Provider<SurveysRepository>((ref) => FirebaseSurveysRepository());
+/// The one place that chooses the implementation: week 5 changed these two lines.
+final pinsRepositoryProvider = Provider<PinsRepository>((ref) => SupabasePinsRepository());
+final surveysRepositoryProvider = Provider<SurveysRepository>((ref) => SupabaseSurveysRepository());
 /// Exercise 1: what the cloud holds for one entrance's survey, live.
 final cloudSurveyProvider = StreamProvider.family<CloudSurvey, String>(
       (ref, id) => ref.watch(surveysRepositoryProvider).watchOne(id),

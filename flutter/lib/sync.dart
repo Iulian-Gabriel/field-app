@@ -1,14 +1,11 @@
 import 'dart:async';
-import 'dart:io' show File;
 import 'dart:math' show min;
 
-//import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 
 import 'auth.dart';
 import 'contract/contract.dart';
@@ -16,22 +13,23 @@ import 'db/database.dart';
 import 'providers.dart';
 import 'repositories.dart';
 
-
-/// Server state: my pins as the cloud has them, live (one Firestore listener).
-/// The banner watches it; SyncScope copies every new list into SQLite.
+/// Server state: my pins as the cloud has them, from the last fetch. The
+/// banner watches it; SyncScope copies every new list into SQLite.
+/// pullPins asks again: Riverpod throws the old stream away and starts a new one.
 final myPinsProvider = StreamProvider<List<Entrance>>(
       (ref) => ref.watch(pinsRepositoryProvider).watchMine(ref.watch(uidProvider)),
 );
 
 final outboxProvider = StreamProvider(
       (ref) => ref.watch(databaseProvider).watchOutbox(),
-    );
-/// Invitation: the outbox, row by row, live.
+);
+
+/// (week 4) Invitation: the outbox, row by row, live.
 final outboxRowsProvider = StreamProvider<List<EntranceRow>>(
       (ref) => ref.watch(databaseProvider).watchOutboxRows(),
 );
 
-/// Invitation: when we last heard from the cloud. Kept across restarts.
+/// (week 4) Invitation: when we last heard from the cloud. Kept across restarts.
 class CloudTimes {
   const CloudTimes({this.pull, this.push});
   final DateTime? pull;
@@ -48,7 +46,6 @@ class CloudTimesNotifier extends Notifier<CloudTimes> {
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
     DateTime? read(String k) => DateTime.tryParse(p.getString(k) ?? '');
-    // Keep anything marked while we were loading.
     state = CloudTimes(pull: state.pull ?? read('lastPullAt'), push: state.push ?? read('lastPushAt'));
   }
 
@@ -62,68 +59,77 @@ class CloudTimesNotifier extends Notifier<CloudTimes> {
 }
 
 final cloudTimesProvider = NotifierProvider<CloudTimesNotifier, CloudTimes>(CloudTimesNotifier.new);
-/// Exercise 2: the newest survey the cloud has from me.
-final lastSentProvider = StreamProvider<Map<String, dynamic>?>(
-      (ref) => ref.watch(surveysRepositoryProvider).watchLastSent(ref.watch(uidProvider)).handleError(
-        (Object e) {
-      debugPrint('$e'); // failed-precondition: the message holds the link that creates the index
-      throw e;
-    },
-  ),
-);
 
+/// The pull, again: on start, back in the foreground and on "Sync now".
+void pullPins(WidgetRef ref) => ref.invalidate(myPinsProvider);
+
+/// Sign out only when nothing waits to be sent. The local database is not
+/// per user: the next worker's push would send this one's surveys, the server
+/// would refuse them (not theirs) and the pull would delete them. So the
+/// worker sends first (or deletes the surveys on purpose, a later feature).
+Future<void> signOutIfSent(BuildContext context, WidgetRef ref) async {
+  final box = await ref.read(databaseProvider).watchOutbox().first;
+  final waiting = box.pending + box.failed;
+  if (waiting == 0) return signOut();
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text('$waiting survey(s) not sent yet: tap Sync now, then sign out.'),
+  ));
+}
 
 var _pushing = false;
-var _again = false; // a push was asked for while one was running
-Timer? _retryTimer;
-var _autoTries = 0;
-WidgetRef? _scopeRef; // SyncScope's ref: lives as long as a worker is signed in
+var _again = false; // (week 4) a push was asked for while one was running
+Timer? _retryTimer; // (week 4) the retry policy's timer
+var _autoTries = 0; // (week 4)
+WidgetRef? _scopeRef; // (week 4) SyncScope's ref: lives as long as a worker is signed in
 
-/// Refusals that sending again cannot fix: never retried automatically.
-const _permanent = {'permission-denied', 'invalid-argument'};
-
-/// The outbox push. onlyId: retry one row. auto: a retry from the timer.
-/// Anything else (a person, the network back, the app resumed) resets the policy.
+/// The outbox push: every unsent survey goes up as an update of its entrance's
+/// row, by the entrance's UUID, so a second push (the app was killed before it
+/// heard "ok") writes the same values again: idempotent. Offline, the call
+/// throws at once (Firestore used to wait): the survey stays pending in SQLite
+/// and the next trigger sends it.
+/// (week 4) onlyId: retry one row. auto: a retry from the policy's timer.
 Future<void> pushSurveys(WidgetRef ref, {String? onlyId, bool auto = false}) async {
   if (_pushing) {
-    _again = true; // run once more when this push finishes
+    _again = true; // (week 4) run once more when this push finishes
     return;
   }
   _pushing = true;
-  if (!auto) _autoTries = 0;
-  _retryTimer?.cancel();
+  if (!auto) _autoTries = 0; // (week 4)
+  _retryTimer?.cancel(); // (week 4)
   final db = ref.read(databaseProvider);
   final surveys = ref.read(surveysRepositoryProvider);
   final uid = ref.read(uidProvider);
-  final times = ref.read(cloudTimesProvider.notifier);
-  var transientLeft = false;
+  final times = ref.read(cloudTimesProvider.notifier); // (week 4)
+  var transientLeft = false; // (week 4)
   try {
     for (final e in await db.outbox()) {
-      if (onlyId != null && e.id != onlyId) continue;
+      if (onlyId != null && e.id != onlyId) continue; // (week 4)
       try {
         await surveys.push(surveyDoc(e, uid));
         await db.markSent(e.id, e.updatedAt, null);
-        times.mark(push: true);
-      } on FirebaseException catch (err) {
-        // permission-denied: the rules refused it (the pin is no longer mine).
-        await db.markSent(e.id, e.updatedAt, err.code);
-        if (!_permanent.contains(err.code)) transientLeft = true;
+        times.mark(push: true); // (week 4)
+      } on PostgrestException catch (err) {
+        // The database said no: the row is not mine any more, or a rule refused it.
+        await db.markSent(e.id, e.updatedAt, err.message);
       }
     }
-    // Step 11 (optional): the photos, when the project has Storage.
-    if (const bool.fromEnvironment('UPLOAD_PHOTOS')) await _pushPhotos(db, uid);
+  } catch (_) {
+    // No answer (offline, a timeout): nothing is lost, the rows stay pending.
+    transientLeft = true; // (week 4) the retry policy will try again
   } finally {
     _pushing = false;
   }
+  // (week 4) surveys submitted while this push ran
   if (_again) {
     _again = false;
     final again = _scopeRef;
-    if (again != null) return pushSurveys(again); // surveys submitted meanwhile
+    if (again != null) return pushSurveys(again);
   }
-  if (transientLeft) _scheduleRetry();
+  if (transientLeft) _scheduleRetry(); // (week 4)
 }
 
-/// The policy (see sync_status_screen.dart): 30 s, doubling, max 10 min, 6 tries.
+/// (week 4) The policy (see sync_status_screen.dart): 30 s, doubling, max 10 min, 6 tries.
 void _scheduleRetry() {
   if (_autoTries >= 6 || _scopeRef == null) return;
   final seconds = min(30 << _autoTries, 600);
@@ -133,26 +139,6 @@ void _scheduleRetry() {
     if (ref != null) pushSurveys(ref, auto: true);
   });
 }
-
-/// Every photo not uploaded yet goes to photos/{uid}/{entranceId}/{photoId}.jpg.
-Future<void> _pushPhotos(AppDatabase db, String uid) async {
-    for (final p in await db.photosToUpload()) {
-      final file = FirebaseStorage.instance.ref('photos/$uid/${p.entranceId}/${p.id}.jpg');
-      final meta = SettableMetadata(contentType: 'image/jpeg');
-      try {
-        if (p.localUri.startsWith('data:')) {
-          // The web keeps the photo as a data: URI (week 3).
-          await file.putString(p.localUri, format: PutStringFormat.dataUrl, metadata: meta);
-        } else {
-          await file.putFile(File(p.localUri), meta);
-        }
-        await db.markPhoto(p.id, remoteUrl: await file.getDownloadURL());
-      } on FirebaseException catch (err) {
-        await db.markPhoto(p.id, error: err.code);
-      }
-    }
-  }
-
 
 /// Wraps the signed-in app: while it is on screen, the pull runs. Signing out
 /// removes it, and Riverpod stops the listener nobody watches any more.
@@ -166,39 +152,47 @@ class SyncScope extends ConsumerStatefulWidget {
 }
 
 class _SyncScopeState extends ConsumerState<SyncScope> {
-    late final AppLifecycleListener _lifecycle;
-    late final StreamSubscription<List<ConnectivityResult>> _network;
+  late final AppLifecycleListener _lifecycle;
+  late final StreamSubscription<List<ConnectivityResult>> _network;
+
   @override
   void initState() {
     super.initState();
-    _scopeRef = ref;
-        // The push, at three moments: now, back in the foreground, and when the
-        // network comes back. (And on "Sync now", and after a submit.)
-        pushSurveys(ref);
-        _lifecycle = AppLifecycleListener(onResume: () => pushSurveys(ref));
-        _network = Connectivity().onConnectivityChanged.listen((links) {
-            if (!links.contains(ConnectivityResult.none)) pushSurveys(ref);
-          });
-    // The pull: every snapshot of my pins goes to SQLite, the truth on the
-    // phone. listenManual keeps the listener alive while this widget lives.
+    _scopeRef = ref; // (week 4)
+    // The push and the pull, at three moments: now (the provider's first
+    // fetch), back in the foreground, and when the network comes back. (And on
+    // "Sync now"; the push also after a submit.)
+    pushSurveys(ref);
+    _lifecycle = AppLifecycleListener(onResume: () {
+      pushSurveys(ref);
+      pullPins(ref);
+    });
+    _network = Connectivity().onConnectivityChanged.listen((links) {
+      if (links.contains(ConnectivityResult.none)) return;
+      pushSurveys(ref);
+      pullPins(ref);
+    });
+    // The pull: every list of my pins goes to SQLite, the truth on the
+    // phone. listenManual keeps the provider alive while this widget lives.
     ref.listenManual(myPinsProvider, (_, next) {
       final pins = next.value;
-      if (pins != null) {
-        ref.read(databaseProvider).savePins(pins);
-        ref.read(cloudTimesProvider.notifier).mark(pull: true);
-      }
+      if (pins == null) return;
+      ref.read(cloudTimesProvider.notifier).mark(pull: true); // (week 4)
+      // An empty answer is also what row level security returns when it hides
+      // every row: never read it as "all my pins are gone". (A real "none left"
+      // waits for the next pull that brings a pin.)
+      if (pins.isNotEmpty) ref.read(databaseProvider).savePins(pins);
     }, fireImmediately: true);
   }
 
-      @override
-      void dispose() {
-          _lifecycle.dispose();
-          _network.cancel();
-          _retryTimer?.cancel();
-          _scopeRef = null;
-          super.dispose();
-        }
-
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    _network.cancel();
+    _retryTimer?.cancel(); // (week 4)
+    _scopeRef = null; // (week 4)
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => widget.child;
